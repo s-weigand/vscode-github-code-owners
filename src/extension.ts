@@ -2,21 +2,19 @@ import vscode from "vscode"
 import findUp from "find-up"
 import path from "path"
 
-type CodeOwners = {
-  getOwnership(
-    codeownersFilePath: string,
-    filePaths: string[],
-  ): Promise<{ owners: string[] }[]>
-}
-const GitHubCodeowners: CodeOwners = require("@snyk/github-codeowners/dist/lib/ownership")
+import { OwnershipEngine } from "@snyk/github-codeowners/dist/lib/ownership"
 
 const COMMAND_ID = "github-code-owners.show-owners"
 
 const STATUS_BAR_PRIORITY = 100
 
-async function getOwners(): Promise<string[] | null> {
+async function getOwnership(): Promise<{
+  owners: string[]
+  lineno: number
+  filePath: string
+} | null> {
   if (!vscode.window.activeTextEditor) {
-    return []
+    return null
   }
 
   const { fileName, uri } = vscode.window.activeTextEditor.document
@@ -38,15 +36,17 @@ async function getOwners(): Promise<string[] | null> {
 
   const file = fileName.split(`${workspacePath}${path.sep}`)[1]
 
-  try {
-    const res = await GitHubCodeowners.getOwnership(codeownersFilePath, [file])
-    if (res.length > 0) {
-      return res[0].owners.map((x) => x.replace(/^@/, ""))
-    }
-    return []
-  } catch (e) {
-    console.error(e)
-    return []
+  const codeOwners = OwnershipEngine.FromCodeownersFile(codeownersFilePath)
+  const res = codeOwners.calcFileOwnership(file)
+
+  if (res == null) {
+    return null
+  }
+
+  return {
+    ...res,
+    owners: res.owners.map((x) => x.replace(/^@/, "")),
+    filePath: codeownersFilePath,
   }
 }
 
@@ -62,22 +62,86 @@ function formatNames(owners: string[]): string {
   }
 }
 
-function formatToolTip(owners: string[]): string {
+function formatToolTip({
+  owners,
+  lineno,
+}: {
+  owners: string[]
+  lineno: number
+}): string {
   if (owners.length === 0) {
     return "No Owners"
   }
 
   if (owners.length <= 2) {
-    return `Owned by ${owners.join(" and ")}`
+    return `Owned by ${owners.join(" and ")}\n(from CODEOWNERS line ${lineno})`
   }
 
   return `Owned by ${owners.slice(0, owners.length - 1).join(", ")} and ${
     owners[owners.length - 1]
-  }`
+  }\n(from CODEOWNERS line ${lineno})`
+}
+
+/**
+ * Add links to usernames in CODEOWNERS file that open on GitHub.
+ */
+class LinkProvider implements vscode.DocumentLinkProvider {
+  public provideDocumentLinks(
+    document: vscode.TextDocument,
+    token: vscode.CancellationToken,
+  ): vscode.ProviderResult<vscode.DocumentLink[]> {
+    const regex = new RegExp(/\S*@\S+/g)
+    const text = document.getText()
+    let matches
+    const links = []
+    // loop copied from https://github.com/microsoft/vscode-extension-samples/blob/dfb20f12d425bad2ede0f1faae25e0775ca750eb/codelens-sample/src/CodelensProvider.ts#L24-L37
+    while ((matches = regex.exec(text)) !== null) {
+      const line = document.lineAt(document.positionAt(matches.index).line)
+      const indexOf = line.text.indexOf(matches[0])
+      const position = new vscode.Position(line.lineNumber, indexOf)
+      const range = document.getWordRangeAtPosition(
+        position,
+        new RegExp(/\S*@\S+/g),
+      )
+
+      if (range) {
+        const username = document.getText(range)
+
+        // don't make emails clickable
+        // e.g. docs@example.com
+        if (!username.startsWith("@")) {
+          continue
+        }
+        const link = new vscode.DocumentLink(
+          range,
+          githubUserToUrl(username.replace(/^@/, "")),
+        )
+        link.tooltip = `View ${username} on Github`
+
+        links.push(link)
+      }
+    }
+    return links
+  }
+}
+
+function githubUserToUrl(username: string): vscode.Uri {
+  const isTeamName = username.includes("/")
+
+  if (isTeamName) {
+    const [org, name] = username.split(/\//)
+    return vscode.Uri.parse(`https://github.com/orgs/${org}/teams/${name}`)
+  }
+  return vscode.Uri.parse(`https://github.com/${username}`)
 }
 
 export function activate(context: vscode.ExtensionContext) {
   console.log("CODEOWNERS: activated")
+
+  vscode.languages.registerDocumentLinkProvider(
+    "codeowners",
+    new LinkProvider(),
+  )
 
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -89,46 +153,36 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(COMMAND_ID, async () => {
-      const owners = await getOwners()
-      if (owners == null) {
+      const ownership = await getOwnership()
+      if (ownership == null) {
         return
       }
-      const res = await vscode.window.showQuickPick(
-        owners.map((owner) => ({
-          label: owner.replace(/^@/, ""),
-          description: "View in GitHub",
-        })),
-      )
-      if (res != null) {
-        const isTeamName = res.label.includes("/")
-        const githubUsername = res.label
+      const doc = await vscode.workspace.openTextDocument(ownership.filePath)
+      const textEditor = await vscode.window.showTextDocument(doc)
+      const line = doc.lineAt(ownership.lineno)
 
-        if (isTeamName) {
-          const [org, name] = githubUsername.split(/\//)
-          vscode.env.openExternal(
-            vscode.Uri.parse(`https://github.com/orgs/${org}/teams/${name}`),
-          )
-        } else {
-          vscode.env.openExternal(
-            vscode.Uri.parse(`https://github.com/${githubUsername}`),
-          )
-        }
-      }
+      // select the line.
+      textEditor.selection = new vscode.Selection(
+        line.range.start,
+        line.range.end,
+      )
+      // scroll the line into focus.
+      textEditor.revealRange(line.range)
     }),
   )
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(async () => {
-      const owners = await getOwners()
+      const res = await getOwnership()
 
-      if (!owners) {
+      if (!res) {
         statusBarItem.hide()
         return
       }
 
-      statusBarItem.text = `$(shield) ${formatNames(owners)}`
+      statusBarItem.text = `$(shield) ${formatNames(res.owners)}`
 
-      statusBarItem.tooltip = formatToolTip(owners)
+      statusBarItem.tooltip = formatToolTip(res)
       statusBarItem.show()
     }),
   )
