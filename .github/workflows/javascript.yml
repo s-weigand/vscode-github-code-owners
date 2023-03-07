@@ -1,0 +1,57 @@
+name: Javascript
+
+on:
+  push:
+    branches:
+      - "master"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: "package.json"
+      - name: Install dependencies
+        run: npm ci
+      - name: Build bundle
+        run: ./s/build
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: "package.json"
+      - name: Install dependencies
+        run: npm ci
+      - name: Check Formatting
+        run: ./s/fmt
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: "package.json"
+      - name: Install dependencies
+        run: npm ci
+      - name: Lint JS
+        run: ./s/eslint
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version-file: "package.json"
+      - name: Install dependencies
+        run: npm ci
+      - name: Typescript
+        run: ./s/typecheck
