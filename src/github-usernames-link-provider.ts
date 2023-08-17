@@ -3,12 +3,30 @@ import { findUsernameRanges } from "./owner-name-completion-item-provider"
 
 function githubUserToUrl(username: string): vscode.Uri {
   const isTeamName = username.includes("/")
+  const gitHubUrl = getGitHubUrl()
 
   if (isTeamName) {
     const [org, name] = username.split(/\//)
-    return vscode.Uri.parse(`https://github.com/orgs/${org}/teams/${name}`)
+    return vscode.Uri.parse(gitHubUrl + `/orgs/${org}/teams/${name}`)
   }
-  return vscode.Uri.parse(`https://github.com/${username}`)
+  return vscode.Uri.parse(gitHubUrl + `/${username}`)
+}
+
+function getGitHubUrl(): string {
+  /*
+   * When using GitHub Enterprise Server, you should have a 'github-enterprise.uri'
+   * configuration setting.
+   *
+   * This configuration option is provided by built in "GitHub Authentication" extension
+   * https://github.com/microsoft/vscode/blob/ccb95fd921349023027a0df25ed291b0992b9a18/extensions/github-authentication/src/extension.ts#L10
+   */
+  const setting = vscode.workspace
+    .getConfiguration()
+    .get<string>("github-enterprise.uri")
+  if (!setting) {
+    return "https://github.com"
+  }
+  return setting
 }
 
 /**
