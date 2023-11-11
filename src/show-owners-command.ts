@@ -3,9 +3,11 @@ import path from "path"
 
 import { OwnershipEngine } from "@snyk/github-codeowners/dist/lib/ownership"
 
-async function fileExists(path: string): Promise<boolean> {
+async function fileExists(path: string, scheme: string): Promise<boolean> {
   try {
-    await vscode.workspace.fs.stat(vscode.Uri.parse(path))
+    const uri =
+      scheme === "file" ? vscode.Uri.file(path) : vscode.Uri.parse(path)
+    await vscode.workspace.fs.stat(uri)
     return true
   } catch (e: unknown) {
     // @ts-expect-error we should see this error.
@@ -19,10 +21,11 @@ const PathOptions = [".github/CODEOWNERS", "docs/CODEOWNERS", "CODEOWNERS"]
 
 async function findCodeOwnersFile(
   startDirectory: string,
+  scheme: string,
 ): Promise<string | null> {
   for (const pathOption of PathOptions) {
     const codeownersPath = path.join(startDirectory, pathOption)
-    if (await fileExists(codeownersPath)) {
+    if (await fileExists(codeownersPath, scheme)) {
       return codeownersPath
     }
   }
@@ -55,10 +58,9 @@ export async function getOwnership(
   }
 
   const {
-    uri: { fsPath: workspacePath },
+    uri: { fsPath: workspacePath, scheme },
   } = workspaceFolder
-
-  const codeownersFilePath = await findCodeOwnersFile(workspacePath)
+  const codeownersFilePath = await findCodeOwnersFile(workspacePath, scheme)
   if (codeownersFilePath == null) {
     outputChannel.appendLine(
       `Could not find code owners file for workspace path: ${workspacePath}`,
