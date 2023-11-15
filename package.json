@@ -4,7 +4,7 @@
   "description": "Quickly see GitHub Code Owners for the current file. Add syntax highlighting for CODEOWNERS files.",
   "publisher": "chdsbd",
   "license": "SEE LICENSE IN LICENSE",
-  "version": "3.2.1",
+  "version": "3.3.0",
   "icon": "images/logo256.png",
   "homepage": "https://github.com/chdsbd/vscode-github-code-owners/blob/master/README.md",
   "keywords": [
@@ -25,6 +25,7 @@
   },
   "categories": [
     "Programming Languages",
+    "Formatters",
     "Other"
   ],
   "activationEvents": [
@@ -57,20 +58,52 @@
         "scopeName": "text.codeowners",
         "path": "./syntaxes/codeowners.tmLanguage.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "GitHub Code Owners",
+      "properties": {
+        "github-code-owners.format.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether or not to enable formatting."
+        },
+        "github-code-owners.format.alignment-offset": {
+          "type": "number",
+          "default": 4,
+          "minimum": 1,
+          "description": "Space offset to use from the longest file pattern the first code owner when aligning."
+        }
+      }
+    }
   },
   "scripts": {
-    "vscode:prepublish": "./s/build",
-    "compile": "./s/build"
+    "vscode:prepublish": "run-s compile",
+    "compile": "node esbuild.config.js",
+    "eslint": "eslint --ignore-path .gitignore .",
+    "typecheck": "run-s typecheck:src typecheck:test",
+    "typecheck:src": "tsc --noEmit -p ./",
+    "typecheck:test": " tsc --noEmit -p ./tsconfig.test.json",
+    "fmt": "prettier '**/*.{js,md,yml,json}' --write",
+    "fmt:check": "prettier --check '**/*.{js,md,yml,json}'",
+    "package": "vsce package",
+    "compile-tests": "tsc -p ./tsconfig.test.json",
+    "pretest": "run-s compile compile-tests",
+    "test": "node ./out/test/runTest.js"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.195",
+    "@types/mocha": "^10.0.4",
     "@types/node": "^18.14.2",
     "@types/vscode": "^1.53.0",
     "@typescript-eslint/eslint-plugin": "^5.54.1",
     "@typescript-eslint/parser": "^5.54.1",
+    "@vscode/test-cli": "^0.0.4",
+    "@vscode/test-electron": "^2.3.6",
     "esbuild": "^0.17.10",
     "eslint": "^8.35.0",
+    "glob": "^10.3.10",
+    "mocha": "^10.2.0",
+    "npm-run-all": "^4.1.5",
     "prettier": "^2.8.4",
     "typescript": "^4.9.5"
   },
